@@ -1,0 +1,82 @@
+name: Wave Container Publish
+
+on:
+  workflow_call:
+    inputs:
+      application_name:
+        description: Application name
+        required: true
+        type: string
+
+      image_tag:
+        description: Container image tag
+        required: true
+        type: string
+
+      registry_name:
+        description: Azure Container Registry name
+        required: true
+        type: string
+
+      registry_login_server:
+        description: Azure Container Registry login server
+        required: true
+        type: string
+
+    secrets:
+      azure_client_id:
+        required: true
+
+      azure_tenant_id:
+        required: true
+
+      azure_subscription_id:
+        required: true
+
+jobs:
+  publish:
+    name: Publish Container
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Download container image artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: wave-container-${{ inputs.application_name }}-${{ inputs.image_tag }}
+
+      - name: Load container image
+        run: |
+          docker load \
+            --input wave-container-image.tar
+
+      - name: Verify loaded image
+        run: |
+          docker image inspect \
+            "${{ inputs.application_name }}:${{ inputs.image_tag }}"
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.azure_client_id }}
+          tenant-id: ${{ secrets.azure_tenant_id }}
+          subscription-id: ${{ secrets.azure_subscription_id }}
+
+      - name: Login to Azure Container Registry
+        run: |
+          az acr login \
+            --name "${{ inputs.registry_name }}"
+
+      - name: Tag container image
+        run: |
+          docker tag \
+            "${{ inputs.application_name }}:${{ inputs.image_tag }}" \
+            "${{ inputs.registry_login_server }}/${{ inputs.application_name }}:${{ inputs.image_tag }}"
+
+      - name: Push container image
+        run: |
+          docker push \
+            "${{ inputs.registry_login_server }}/${{ inputs.application_name }}:${{ inputs.image_tag }}"

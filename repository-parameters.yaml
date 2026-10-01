@@ -1,0 +1,22 @@
+version: "1.0"
+
+repository:
+  name: "wave-lab-app"
+
+application:
+  name: "wave-lab-app"
+
+container:
+  registry_name: "acrwavelabdev"
+  registry_login_server: "acrwavelabdev.azurecr.io"
+
+gitops:
+  repository: "nexgbitslabs/wave-lab-gitops"
+  branch: "main"
+
+environments:
+  dev:
+    deployment_file: "apps/base/deployment.yaml"
+  qa: {}
+  uat: {}
+  prod: {}
