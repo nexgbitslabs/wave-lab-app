@@ -107,6 +107,64 @@ pipeline {
                 }
             }
         }
+
+        stage('Push Container Image to ACR') {
+            steps {
+                withCredentials([
+                    string(
+                        credentialsId: 'azure-terraform-client-id',
+                        variable: 'ARM_CLIENT_ID'
+                    ),
+                    string(
+                        credentialsId: 'azure-terraform-client-secret',
+                        variable: 'ARM_CLIENT_SECRET'
+                    ),
+                    string(
+                        credentialsId: 'azure-terraform-tenant-id',
+                        variable: 'ARM_TENANT_ID'
+                    )
+                ]) {
+                    sh '''
+                        set -e
+
+                        ACR_NAME="acrwavelabdev"
+                        ACR_LOGIN_SERVER="acrwavelabdev.azurecr.io"
+                        LOCAL_IMAGE="${APP_NAME}:${IMAGE_TAG}"
+                        REMOTE_IMAGE="${ACR_LOGIN_SERVER}/${APP_NAME}:${IMAGE_TAG}"
+
+                        echo "Authenticating Jenkins service principal to Azure..."
+
+                        az login \
+                        --service-principal \
+                        --username "$ARM_CLIENT_ID" \
+                        --password "$ARM_CLIENT_SECRET" \
+                        --tenant "$ARM_TENANT_ID" \
+                        --output none
+
+                        echo "Authenticating Docker to ${ACR_LOGIN_SERVER}..."
+
+                        az acr login --name "$ACR_NAME"
+
+                        echo "Tagging image:"
+                        echo "${LOCAL_IMAGE} -> ${REMOTE_IMAGE}"
+
+                        docker tag \
+                        "${LOCAL_IMAGE}" \
+                        "${REMOTE_IMAGE}"
+
+                        echo "Pushing ${REMOTE_IMAGE}..."
+
+                        docker push "${REMOTE_IMAGE}"
+
+                        echo ""
+                        echo "Container image pushed successfully:"
+                        echo "${REMOTE_IMAGE}"
+
+                        az logout
+                    '''
+                }
+            }
+        }
     }
 
     post {
