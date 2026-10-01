@@ -166,6 +166,81 @@ pipeline {
             }
         }
 
+        stage('Update GitOps Image') {
+            steps {
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'github-wave-lab-gitops',
+                        usernameVariable: 'GITOPS_USERNAME',
+                        passwordVariable: 'GITOPS_TOKEN'
+                    )
+                ]) {
+            sh '''
+                set -e
+
+                GITOPS_REPO="https://github.com/nexgbitslabs/wave-lab-gitops.git"
+                GITOPS_DIR="${WORKSPACE}/wave-lab-gitops"
+                DEPLOYMENT_FILE="apps/base/deployment.yaml"
+                NEW_IMAGE="acrwavelabdev.azurecr.io/${APP_NAME}:${IMAGE_TAG}"
+
+                echo "========================================"
+                echo "Updating GitOps repository"
+                echo "========================================"
+                echo "Image: ${NEW_IMAGE}"
+
+                rm -rf "${GITOPS_DIR}"
+
+                GIT_ASKPASS_SCRIPT=$(mktemp)
+
+                cat > "$GIT_ASKPASS_SCRIPT" <<'SCRIPT'
+                #!/bin/sh
+                case "$1" in
+                    *Username*) echo "$GITOPS_USERNAME" ;;
+                    *Password*) echo "$GITOPS_TOKEN" ;;
+                esac
+                SCRIPT
+
+                                chmod 700 "$GIT_ASKPASS_SCRIPT"
+
+                                export GIT_ASKPASS="$GIT_ASKPASS_SCRIPT"
+                                export GIT_TERMINAL_PROMPT=0
+
+                                git clone "${GITOPS_REPO}" "${GITOPS_DIR}"
+
+                                cd "${GITOPS_DIR}"
+
+                                echo "Current image:"
+                                grep "image:" "${DEPLOYMENT_FILE}"
+
+                                sed -i \
+                                "s|image: .*|image: ${NEW_IMAGE}|" \
+                                "${DEPLOYMENT_FILE}"
+
+                                echo "New image:"
+                                grep "image:" "${DEPLOYMENT_FILE}"
+
+                                git config user.name "Wave Lab Jenkins"
+                                git config user.email "jenkins@wave-lab.local"
+
+                                git add "${DEPLOYMENT_FILE}"
+
+                                if git diff --cached --quiet; then
+                                    echo "GitOps repository already references ${NEW_IMAGE}."
+                                else
+                                    git commit \
+                                    -m "Deploy ${APP_NAME}:${IMAGE_TAG} to DEV"
+
+                                    git push origin main
+
+                                    echo "GitOps update pushed successfully."
+                                fi
+
+                                rm -f "$GIT_ASKPASS_SCRIPT"
+                            '''
+                        }
+                    }
+                }
+
         stage('Verify GitOps Repository Access') {
             steps {
                 withCredentials([
