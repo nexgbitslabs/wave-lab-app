@@ -1,0 +1,91 @@
+name: Wave GitOps Promotion
+
+on:
+  workflow_call:
+    inputs:
+      application_name:
+        description: Application name
+        required: true
+        type: string
+
+      image_tag:
+        description: Container image tag
+        required: true
+        type: string
+
+      registry_login_server:
+        description: Azure Container Registry login server
+        required: true
+        type: string
+
+      gitops_repository:
+        description: GitOps repository in owner/repository format
+        required: true
+        type: string
+
+      gitops_branch:
+        description: GitOps target branch
+        required: false
+        default: main
+        type: string
+
+      deployment_file:
+        description: Deployment manifest to update
+        required: true
+        type: string
+
+      environment:
+        description: Target environment
+        required: true
+        type: string
+
+    secrets:
+      gitops_token:
+        required: true
+
+jobs:
+  promote:
+    name: Promote Image Through GitOps
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Clone GitOps repository
+        env:
+          GITOPS_TOKEN: ${{ secrets.gitops_token }}
+        run: |
+          git clone \
+            --branch "${{ inputs.gitops_branch }}" \
+            "https://x-access-token:${GITOPS_TOKEN}@github.com/${{ inputs.gitops_repository }}.git" \
+            gitops
+
+      - name: Update desired container image
+        working-directory: gitops
+        run: |
+          NEW_IMAGE="${{ inputs.registry_login_server }}/${{ inputs.application_name }}:${{ inputs.image_tag }}"
+
+          echo "Promoting image:"
+          echo "${NEW_IMAGE}"
+
+          sed -i \
+            "s|image: .*|image: ${NEW_IMAGE}|" \
+            "${{ inputs.deployment_file }}"
+
+          grep "image:" "${{ inputs.deployment_file }}"
+
+      - name: Commit and push GitOps change
+        working-directory: gitops
+        run: |
+          git config user.name "Wave Automation"
+          git config user.email "wave-automation@wave-lab.local"
+
+          git add "${{ inputs.deployment_file }}"
+
+          if git diff --cached --quiet; then
+            echo "No GitOps change required."
+            exit 0
+          fi
+
+          git commit \
+            -m "Deploy ${{ inputs.application_name }}:${{ inputs.image_tag }} to ${{ inputs.environment }}"
+
+          git push origin "${{ inputs.gitops_branch }}"

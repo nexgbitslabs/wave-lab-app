@@ -1,0 +1,60 @@
+name: Wave Container Build
+
+on:
+  workflow_call:
+    inputs:
+      application_name:
+        description: Application name
+        required: true
+        type: string
+
+      dockerfile:
+        description: Path to the Dockerfile
+        required: false
+        default: Dockerfile
+        type: string
+
+      build_context:
+        description: Docker build context
+        required: false
+        default: .
+        type: string
+
+      image_tag:
+        description: Container image tag
+        required: true
+        type: string
+
+jobs:
+  build:
+    name: Build Container
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build container image
+        run: |
+          docker build \
+            -f "${{ inputs.dockerfile }}" \
+            -t "${{ inputs.application_name }}:${{ inputs.image_tag }}" \
+            "${{ inputs.build_context }}"
+
+      - name: Verify container image
+        run: |
+          docker image inspect \
+            "${{ inputs.application_name }}:${{ inputs.image_tag }}"
+
+      - name: Export container image
+        run: |
+          docker save \
+            "${{ inputs.application_name }}:${{ inputs.image_tag }}" \
+            -o wave-container-image.tar
+
+      - name: Upload container image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wave-container-${{ inputs.application_name }}-${{ inputs.image_tag }}
+          path: wave-container-image.tar
+          retention-days: 1

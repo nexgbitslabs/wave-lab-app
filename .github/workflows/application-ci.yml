@@ -1,0 +1,62 @@
+name: Wave Application CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  build:
+    uses: ./.github/workflows/container-build.yml
+    with:
+      application_name: wave-lab-app
+      dockerfile: Dockerfile
+      build_context: .
+      image_tag: ${{ github.run_number }}
+
+  publish:
+    needs: build
+    if: github.event_name != 'pull_request'
+
+    uses: ./.github/workflows/container-publish.yml
+
+    permissions:
+      contents: read
+      id-token: write
+
+    with:
+      application_name: wave-lab-app
+      image_tag: ${{ github.run_number }}
+      registry_name: acrwavelabdev
+      registry_login_server: acrwavelabdev.azurecr.io
+
+    secrets:
+      azure_client_id: ${{ secrets.AZURE_CLIENT_ID }}
+      azure_tenant_id: ${{ secrets.AZURE_TENANT_ID }}
+      azure_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+  promote:
+    needs: publish
+    if: github.event_name != 'pull_request'
+
+    uses: ./.github/workflows/gitops-promotion.yml
+
+    with:
+      application_name: wave-lab-app
+      image_tag: ${{ github.run_number }}
+      registry_login_server: acrwavelabdev.azurecr.io
+      gitops_repository: nexgbitslabs/wave-lab-gitops
+      gitops_branch: main
+      deployment_file: apps/base/deployment.yaml
+      environment: dev
+
+    secrets:
+      gitops_token: ${{ secrets.GITOPS_TOKEN }}
