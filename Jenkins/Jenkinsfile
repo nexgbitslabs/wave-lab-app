@@ -165,6 +165,46 @@ pipeline {
                 }
             }
         }
+
+        stage('Verify GitOps Repository Access') {
+            steps {
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'github-wave-lab-gitops',
+                        usernameVariable: 'GITOPS_USERNAME',
+                        passwordVariable: 'GITOPS_TOKEN'
+                    )
+                ]) {
+                    sh '''
+                        set -e
+
+                        echo "Verifying GitOps repository access..."
+
+                        GIT_ASKPASS_SCRIPT=$(mktemp)
+
+                        cat > "$GIT_ASKPASS_SCRIPT" <<'SCRIPT'
+        #!/bin/sh
+        case "$1" in
+            *Username*) echo "$GITOPS_USERNAME" ;;
+            *Password*) echo "$GITOPS_TOKEN" ;;
+        esac
+        SCRIPT
+
+                        chmod 700 "$GIT_ASKPASS_SCRIPT"
+
+                        GIT_ASKPASS="$GIT_ASKPASS_SCRIPT" \
+                        GIT_TERMINAL_PROMPT=0 \
+                        git ls-remote \
+                        https://github.com/nexgbitslabs/wave-lab-gitops.git \
+                        refs/heads/main
+
+                        rm -f "$GIT_ASKPASS_SCRIPT"
+
+                        echo "GitOps repository authentication successful."
+                    '''
+                }
+            }
+        }
     }
 
     post {
