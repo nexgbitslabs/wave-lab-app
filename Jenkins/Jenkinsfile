@@ -1,0 +1,85 @@
+pipeline {
+    agent any
+
+    options {
+        timestamps()
+        disableConcurrentBuilds()
+    }
+
+    environment {
+        APP_NAME     = 'wave-lab-app'
+        IMAGE_TAG    = "${BUILD_NUMBER}"
+    }
+
+    stages {
+
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Verify Tooling') {
+            steps {
+                sh '''
+                    set -e
+
+                    echo "========================================"
+                    echo "Wave Lab - CI Tooling Verification"
+                    echo "========================================"
+
+                    echo ""
+                    echo "Git:"
+                    git --version
+
+                    echo ""
+                    echo "Docker:"
+                    docker --version
+
+                    echo ""
+                    echo "Application:"
+                    echo "${APP_NAME}"
+
+                    echo ""
+                    echo "Image tag:"
+                    echo "${IMAGE_TAG}"
+                '''
+            }
+        }
+
+        stage('Build Container Image') {
+            steps {
+                sh '''
+                    set -e
+
+                    echo "Building ${APP_NAME}:${IMAGE_TAG}"
+
+                    docker build \
+                      -t ${APP_NAME}:${IMAGE_TAG} \
+                      .
+
+                    echo ""
+                    echo "Container image built successfully."
+
+                    docker image inspect \
+                      ${APP_NAME}:${IMAGE_TAG} \
+                      --format='{{.RepoTags}}'
+                '''
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "Jenkins CI build completed successfully."
+        }
+
+        failure {
+            echo "Jenkins CI build failed."
+        }
+
+        always {
+            echo "Build: ${BUILD_NUMBER}"
+        }
+    }
+}
