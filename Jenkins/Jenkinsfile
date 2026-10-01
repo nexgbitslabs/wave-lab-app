@@ -7,8 +7,8 @@ pipeline {
     }
 
     environment {
-        APP_NAME     = 'wave-lab-app'
-        IMAGE_TAG    = "${BUILD_NUMBER}"
+        APP_NAME  = 'wave-lab-app'
+        IMAGE_TAG = "${BUILD_NUMBER}"
     }
 
     stages {
@@ -55,56 +55,16 @@ pipeline {
                     echo "Building ${APP_NAME}:${IMAGE_TAG}"
 
                     docker build \
-                      -t ${APP_NAME}:${IMAGE_TAG} \
+                      -t "${APP_NAME}:${IMAGE_TAG}" \
                       .
 
                     echo ""
                     echo "Container image built successfully."
 
                     docker image inspect \
-                      ${APP_NAME}:${IMAGE_TAG} \
+                      "${APP_NAME}:${IMAGE_TAG}" \
                       --format='{{.RepoTags}}'
                 '''
-            }
-        }
-
-        stage('Verify ACR Authentication') {
-            steps {
-                withCredentials([
-                    string(
-                        credentialsId: 'azure-terraform-client-id',
-                        variable: 'ARM_CLIENT_ID'
-                    ),
-                    string(
-                        credentialsId: 'azure-terraform-client-secret',
-                        variable: 'ARM_CLIENT_SECRET'
-                    ),
-                    string(
-                        credentialsId: 'azure-terraform-tenant-id',
-                        variable: 'ARM_TENANT_ID'
-                    )
-                ]) {
-                    sh '''
-                        set -e
-
-                        echo "Authenticating Jenkins service principal to Azure..."
-
-                        az login \
-                        --service-principal \
-                        --username "$ARM_CLIENT_ID" \
-                        --password "$ARM_CLIENT_SECRET" \
-                        --tenant "$ARM_TENANT_ID" \
-                        --output none
-
-                        echo "Authenticating Docker to ACR..."
-
-                        az acr login --name acrwavelabdev
-
-                        echo "ACR authentication successful."
-
-                        az logout
-                    '''
-                }
             }
         }
 
@@ -129,32 +89,43 @@ pipeline {
 
                         ACR_NAME="acrwavelabdev"
                         ACR_LOGIN_SERVER="acrwavelabdev.azurecr.io"
+
                         LOCAL_IMAGE="${APP_NAME}:${IMAGE_TAG}"
                         REMOTE_IMAGE="${ACR_LOGIN_SERVER}/${APP_NAME}:${IMAGE_TAG}"
 
+                        echo "========================================"
+                        echo "Push Container Image to ACR"
+                        echo "========================================"
+
+                        echo ""
                         echo "Authenticating Jenkins service principal to Azure..."
 
                         az login \
-                        --service-principal \
-                        --username "$ARM_CLIENT_ID" \
-                        --password "$ARM_CLIENT_SECRET" \
-                        --tenant "$ARM_TENANT_ID" \
-                        --output none
+                          --service-principal \
+                          --username "$ARM_CLIENT_ID" \
+                          --password "$ARM_CLIENT_SECRET" \
+                          --tenant "$ARM_TENANT_ID" \
+                          --output none
 
+                        echo ""
                         echo "Authenticating Docker to ${ACR_LOGIN_SERVER}..."
 
-                        az acr login --name "$ACR_NAME"
+                        az acr login \
+                          --name "$ACR_NAME"
 
+                        echo ""
                         echo "Tagging image:"
                         echo "${LOCAL_IMAGE} -> ${REMOTE_IMAGE}"
 
                         docker tag \
-                        "${LOCAL_IMAGE}" \
-                        "${REMOTE_IMAGE}"
+                          "${LOCAL_IMAGE}" \
+                          "${REMOTE_IMAGE}"
 
+                        echo ""
                         echo "Pushing ${REMOTE_IMAGE}..."
 
-                        docker push "${REMOTE_IMAGE}"
+                        docker push \
+                          "${REMOTE_IMAGE}"
 
                         echo ""
                         echo "Container image pushed successfully:"
@@ -175,107 +146,91 @@ pipeline {
                         passwordVariable: 'GITOPS_TOKEN'
                     )
                 ]) {
-            sh '''
-                set -e
-
-                GITOPS_REPO="https://github.com/nexgbitslabs/wave-lab-gitops.git"
-                GITOPS_DIR="${WORKSPACE}/wave-lab-gitops"
-                DEPLOYMENT_FILE="apps/base/deployment.yaml"
-                NEW_IMAGE="acrwavelabdev.azurecr.io/${APP_NAME}:${IMAGE_TAG}"
-
-                echo "========================================"
-                echo "Updating GitOps repository"
-                echo "========================================"
-                echo "Image: ${NEW_IMAGE}"
-
-                rm -rf "${GITOPS_DIR}"
-
-                GIT_ASKPASS_SCRIPT=$(mktemp)
-
-                cat > "$GIT_ASKPASS_SCRIPT" <<'SCRIPT'
-                #!/bin/sh
-                case "$1" in
-                    *Username*) echo "$GITOPS_USERNAME" ;;
-                    *Password*) echo "$GITOPS_TOKEN" ;;
-                esac
-                SCRIPT
-
-                                chmod 700 "$GIT_ASKPASS_SCRIPT"
-
-                                export GIT_ASKPASS="$GIT_ASKPASS_SCRIPT"
-                                export GIT_TERMINAL_PROMPT=0
-
-                                git clone "${GITOPS_REPO}" "${GITOPS_DIR}"
-
-                                cd "${GITOPS_DIR}"
-
-                                echo "Current image:"
-                                grep "image:" "${DEPLOYMENT_FILE}"
-
-                                sed -i \
-                                "s|image: .*|image: ${NEW_IMAGE}|" \
-                                "${DEPLOYMENT_FILE}"
-
-                                echo "New image:"
-                                grep "image:" "${DEPLOYMENT_FILE}"
-
-                                git config user.name "Wave Lab Jenkins"
-                                git config user.email "jenkins@wave-lab.local"
-
-                                git add "${DEPLOYMENT_FILE}"
-
-                                if git diff --cached --quiet; then
-                                    echo "GitOps repository already references ${NEW_IMAGE}."
-                                else
-                                    git commit \
-                                    -m "Deploy ${APP_NAME}:${IMAGE_TAG} to DEV"
-
-                                    git push origin main
-
-                                    echo "GitOps update pushed successfully."
-                                fi
-
-                                rm -f "$GIT_ASKPASS_SCRIPT"
-                            '''
-                        }
-                    }
-                }
-
-        stage('Verify GitOps Repository Access') {
-            steps {
-                withCredentials([
-                    usernamePassword(
-                        credentialsId: 'github-wave-lab-gitops',
-                        usernameVariable: 'GITOPS_USERNAME',
-                        passwordVariable: 'GITOPS_TOKEN'
-                    )
-                ]) {
                     sh '''
                         set -e
 
-                        echo "Verifying GitOps repository access..."
+                        GITOPS_REPO="https://github.com/nexgbitslabs/wave-lab-gitops.git"
+                        GITOPS_DIR="${WORKSPACE}/wave-lab-gitops"
 
-                        GIT_ASKPASS_SCRIPT=$(mktemp)
+                        DEPLOYMENT_FILE="apps/base/deployment.yaml"
 
-                        cat > "$GIT_ASKPASS_SCRIPT" <<'SCRIPT'
-        #!/bin/sh
-        case "$1" in
-            *Username*) echo "$GITOPS_USERNAME" ;;
-            *Password*) echo "$GITOPS_TOKEN" ;;
-        esac
-        SCRIPT
+                        ACR_LOGIN_SERVER="acrwavelabdev.azurecr.io"
+                        NEW_IMAGE="${ACR_LOGIN_SERVER}/${APP_NAME}:${IMAGE_TAG}"
 
-                        chmod 700 "$GIT_ASKPASS_SCRIPT"
+                        echo "========================================"
+                        echo "Update GitOps Image"
+                        echo "========================================"
 
-                        GIT_ASKPASS="$GIT_ASKPASS_SCRIPT" \
-                        GIT_TERMINAL_PROMPT=0 \
-                        git ls-remote \
-                        https://github.com/nexgbitslabs/wave-lab-gitops.git \
-                        refs/heads/main
+                        echo ""
+                        echo "Target image:"
+                        echo "${NEW_IMAGE}"
 
-                        rm -f "$GIT_ASKPASS_SCRIPT"
+                        echo ""
+                        echo "Cleaning previous GitOps workspace..."
 
-                        echo "GitOps repository authentication successful."
+                        rm -rf "${GITOPS_DIR}"
+
+                        echo ""
+                        echo "Cloning GitOps repository..."
+
+                        git clone \
+                          "${GITOPS_REPO}" \
+                          "${GITOPS_DIR}"
+
+                        cd "${GITOPS_DIR}"
+
+                        echo ""
+                        echo "Current image:"
+                        grep "image:" "${DEPLOYMENT_FILE}"
+
+                        echo ""
+                        echo "Updating image..."
+
+                        sed -i \
+                          "s|image: .*|image: ${NEW_IMAGE}|" \
+                          "${DEPLOYMENT_FILE}"
+
+                        echo ""
+                        echo "New image:"
+                        grep "image:" "${DEPLOYMENT_FILE}"
+
+                        git config \
+                          user.name \
+                          "Wave Lab Jenkins"
+
+                        git config \
+                          user.email \
+                          "jenkins@wave-lab.local"
+
+                        git add \
+                          "${DEPLOYMENT_FILE}"
+
+                        if git diff --cached --quiet; then
+
+                            echo ""
+                            echo "No GitOps change required."
+                            echo "Repository already references:"
+                            echo "${NEW_IMAGE}"
+
+                        else
+
+                            echo ""
+                            echo "Creating GitOps commit..."
+
+                            git commit \
+                              -m "Deploy ${APP_NAME}:${IMAGE_TAG} to DEV"
+
+                            echo ""
+                            echo "Pushing GitOps change..."
+
+                            git push \
+                              "https://${GITOPS_USERNAME}:${GITOPS_TOKEN}@github.com/nexgbitslabs/wave-lab-gitops.git" \
+                              HEAD:main
+
+                            echo ""
+                            echo "GitOps update pushed successfully."
+
+                        fi
                     '''
                 }
             }
@@ -283,6 +238,7 @@ pipeline {
     }
 
     post {
+
         success {
             echo "Jenkins CI build completed successfully."
         }
